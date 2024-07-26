@@ -1,0 +1,85 @@
+import json
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+from web3 import Web3
+
+class TokenExplorerPro:
+    def __init__(self, infura_url: str, token_address: str, token_abi: dict):
+        self.web3 = Web3(Web3.HTTPProvider(infura_url))
+        if not self.web3.isConnected():
+            raise ConnectionError("Unable to connect to the Ethereum network.")
+        
+        self.token_address = Web3.toChecksumAddress(token_address)
+        self.token_contract = self.web3.eth.contract(address=self.token_address, abi=token_abi)
+
+    def get_token_info(self) -> dict:
+        try:
+            name = self.token_contract.functions.name().call()
+            symbol = self.token_contract.functions.symbol().call()
+            decimals = self.token_contract.functions.decimals().call()
+            total_supply = self.token_contract.functions.totalSupply().call()
+            total_supply = self.web3.fromWei(total_supply, 'ether')
+            return {
+                'name': name,
+                'symbol': symbol,
+                'decimals': decimals,
+                'total_supply': total_supply
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_token_transfers(self, start_block: int, end_block: int) -> pd.DataFrame:
+        transfer_events = self.token_contract.events.Transfer.createFilter(fromBlock=start_block, toBlock=end_block).get_all_entries()
+        transfers = []
+        for event in transfer_events:
+            transfers.append({
+                'blockNumber': event['blockNumber'],
+                'transactionHash': event['transactionHash'].hex(),
+                'from': event['args']['from'],
+                'to': event['args']['to'],
+                'value': self.web3.fromWei(event['args']['value'], 'ether'),
+                'timestamp': pd.to_datetime(self.web3.eth.getBlock(event['blockNumber'])['timestamp'], unit='s')
+            })
+        return pd.DataFrame(transfers)
+
+    def plot_token_transfers(self, start_block: int, end_block: int):
+        df = self.get_token_transfers(start_block, end_block)
+        if df.empty:
+            print("No transfer data available to plot.")
+            return
+        plt.figure(figsize=(12, 6))
+        df.groupby(df['timestamp'].dt.date)['value'].sum().plot(kind='bar')
+        plt.title('Daily Token Transfer Volume')
+        plt.xlabel('Date')
+        plt.ylabel('Volume (ETH)')
+        plt.grid(True)
+        plt.show()
+
+    def get_token_holders(self, block_number: int) -> dict:
+        # Example: This might require querying a different source or using a snapshot service
+        # Here we simulate it with a placeholder
+        holders = {}  # Ideally, you'd have a method to query actual holders
+        return holders
+
+# Example Usage
+if __name__ == "__main__":
+    INFURA_URL = 'https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID'
+    TOKEN_ADDRESS = '0xYourTokenAddressHere'
+    TOKEN_ABI = json.loads('[...]')  # Replace with your token contract ABI
+
+    token_explorer_pro = TokenExplorerPro(INFURA_URL, TOKEN_ADDRESS, TOKEN_ABI)
+
+    # Fetch Token Information
+    token_info = token_explorer_pro.get_token_info()
+    print("Token Information:", token_info)
+
+    # Fetch and Plot Token Transfers
+    start_block = 1234567
+    end_block = 1234600
+    token_explorer_pro.plot_token_transfers(start_block, end_block)
+
+    # Fetch Token Holders (Placeholder)
+    block_number = 1234567
+    token_holders = token_explorer_pro.get_token_holders(block_number)
+    print("Token Holders:", token_holders)
